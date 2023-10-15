@@ -1,0 +1,5 @@
+zeep==4.2.1
+psutil==5.9.5
+pywin32==306
+func-timeout==4.3.5
+tenacity==8.2.3
