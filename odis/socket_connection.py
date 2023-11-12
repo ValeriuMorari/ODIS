@@ -1,7 +1,7 @@
 """Socket that handles ODIS commands"""
 import socket
 from interfaces.command_interface import CommandInterface
-from src.main import Odis
+from src.odis import Odis
 from modules.logger import logger
 
 
@@ -33,7 +33,7 @@ class SocketServer:
             self.server_socket.close()
 
     def handle_connection(self, client_socket):
-        first_call = True
+        first_call = False
 
         while True:
             data = client_socket.recv(1024)
