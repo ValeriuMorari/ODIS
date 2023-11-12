@@ -1,0 +1,1 @@
+venv\Scripts\pyinstaller.exe socket_connection.py --onefile

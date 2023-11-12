@@ -44,7 +44,7 @@ class Configuration(metaclass=TriggerSetterMeta):
 
     tool_path: str
     configuration_path: str
-    tool_port: int = None
+    tool_port: str
 
     def _tool_port_setter(self, tool_port):
         """
@@ -55,6 +55,8 @@ class Configuration(metaclass=TriggerSetterMeta):
         # accepted default value as attribute is optional
         if tool_port is None:
             return
+
+        tool_port = int(tool_port)
 
         if 65535 < tool_port < 0:
             raise ValueError(f"Tool port: {tool_port} is out of range of "

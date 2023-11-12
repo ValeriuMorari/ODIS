@@ -3,7 +3,7 @@ import win32gui
 import time
 import func_timeout
 
-from configuration import Configuration
+from src.configuration import Configuration
 from modules.logger import logger
 from modules.custom_exceptions import FlashingError
 from modules.utils import process_exists, kill_process_by_name, start_process, is_port_open
@@ -21,6 +21,12 @@ class Odis(Configuration):
         self.connection_handle = None
         self.ecu_connected = False
         super().__init__(*args, **kwargs)
+
+    @classmethod
+    def initialize(cls, tool_path, configuration_path, tool_port):
+        return cls(tool_path=tool_path,  # "c:\\Program Files\\OE",
+                   configuration_path=configuration_path,  # "c:\\ProgramData\\OE\\",
+                   tool_port=tool_port)
 
     @staticmethod
     def _window_enumeration_callback(hwnd, top_windows):
@@ -69,12 +75,13 @@ class Odis(Configuration):
             logger.error(f"ODIS did not opened within {STARTUP_TIMEOUT}s. Timeout reached")
             raise
 
-    def open(self, force_kill=False):
+    def open(self, force_kill=False) -> str:
         """
         Starts up ODIS, connects to ODIS service
         :param force_kill:
-        :return: Client object is stored under `client` instance attribute
+        :return: Client object is stored under `client` instance attribute; returned success string
         """
+        force_kill = bool(force_kill)
         if process_exists("OffboardDiagLauncher.exe") and not force_kill:
             logger.error("OffboardDiagLauncher process is running. In case of force kill at method call "
                          "please specify argument force_kill=True")
@@ -87,6 +94,7 @@ class Odis(Configuration):
         self._wait_until_reading_finishes()
         self.service = Client(f"http://localhost:{self.tool_port}/OdisAutomationService?wsdl").service
         logger.info(f"Initialized: {self.service}: {self.service.getAutomationApiVersion()}")
+        return "ODIS opened"
 
     def start_protocol(self):
         """
@@ -99,10 +107,10 @@ class Odis(Configuration):
             self.service.discardProtocol()
             self.service.initProtocol()
             self.service.startProtocol()
-            return True
+            return "Protocol started"
         except Exception as error:
             logger.error(error)
-            return False
+            raise ValueError(f"Protocol not started due to error: {error}")
 
     def stop_protocol(self):
         """
@@ -114,10 +122,10 @@ class Odis(Configuration):
         try:
             self.service.stopProtocol()
             self.service.saveProtocol()
-            return True
+            return "Protocol stopped"
         except Exception as error:
             logger.error(error)
-            return False
+            raise ValueError(f"Protocol not stopped due to error: {error}")
 
     def set_vehicle_project(self, project):
         """
@@ -125,19 +133,23 @@ class Odis(Configuration):
         :param project: PDX name
         :return:
         """
+        project = str(project)
         self.service.setVehicleProject(project)
         self.vehicle_project_set = True
+        return f"Vehicle project {project} was set"
 
-    def connect_to_ecu(self, address: hex = 0x3):
+    def connect_to_ecu(self, address: int = 3):
         """
         Initialize connection to ECU
         :return:
         """
+        address = int(address)
         logger.info("Connect to ECU")
         self.connection_handle = self.service.connectToEcu(address).connectionHandle
         logger.info("Open connection")
         self.service.openConnection(self.connection_handle)
         self.ecu_connected = True
+        return f"Connected to ECU: {address}"
 
     @property
     def operable(self):
@@ -173,6 +185,7 @@ class Odis(Configuration):
         :param hex_command: Command in hex
         :return:
         """
+        hex_command = str(hex_command)
         if not self.operable:
             raise ConnectionError("Diagnostic connection not initialized either vehicle project is not set")
 
@@ -198,6 +211,7 @@ class Odis(Configuration):
         :param odx_container: path to ODX container
         :return:
         """
+        odx_container = str(odx_container)
         if not os.path.exists(odx_container):
             logger.info("ODX container: {} do not exists".format(odx_container))
             raise ValueError("ODX_CONTAINER_DO_NOT_EXISTS")
@@ -234,7 +248,7 @@ class Odis(Configuration):
             logger.info("Duration path: {}s".format(flash_session.duration))
             logger.info("Container size: {}".format(flash_session.containerSize))
 
-        return True
+        return "ECU flashed successfully"
 
 
 if __name__ == "__main__":
@@ -246,8 +260,8 @@ if __name__ == "__main__":
     obj.connect_to_ecu(address=0x3)
     obj.start_protocol()
     answers = []
-    answers.append(obj.send_raw_service("10 02"))
-    answers.append(obj.send_raw_service("10 03"))
+    # answers.append(obj.send_raw_service("10 02"))
+    # answers.append(obj.send_raw_service("10 03"))
     answers.append(obj.send_raw_service("10 01"))
     for item in answers:
         print(item)

@@ -33,7 +33,7 @@ class SocketServer:
             self.server_socket.close()
 
     def handle_connection(self, client_socket):
-        first_call = True
+        first_call = False
 
         while True:
             data = client_socket.recv(1024)

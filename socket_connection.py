@@ -48,8 +48,10 @@ class SocketServer:
                 response = self.command_interface.execute_command(message)
                 logger.info(response)
             except Exception as error:
+                logger.info("Sent: " + str(error))
                 client_socket.send(str(error).encode())
             else:
+                logger.info("Sent: " + str(response))
                 client_socket.send(str(response).encode())
 
 
