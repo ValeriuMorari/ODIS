@@ -1,5 +1,5 @@
 venv
 .idea
-src/__pycache__
+odis/__pycache__
 modules/__pycache__
 .gitignore.bak

@@ -1,7 +1,7 @@
 """Socket that handles ODIS commands"""
 import socket
 from interfaces.command_interface import CommandInterface
-from src.odis import Odis
+from odis.odis import Odis
 from modules.logger import logger
 
 

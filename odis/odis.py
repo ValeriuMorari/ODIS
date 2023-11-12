@@ -3,7 +3,7 @@ import win32gui
 import time
 import func_timeout
 
-from src.configuration import Configuration
+from odis.configuration import Configuration
 from modules.logger import logger
 from modules.custom_exceptions import FlashingError
 from modules.utils import process_exists, kill_process_by_name, start_process, is_port_open
