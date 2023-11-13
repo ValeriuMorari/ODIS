@@ -21,7 +21,7 @@ Corresponding .exe opens socket at port 12345 and interprets commands specified 
 ```
 
 It works in tandem with CAPL DLL from release: https://github.com/ValeriuMorari/CAPL_DLL_socket/releases/tag/3.0
-Which means first executable have to be started then from CAPL ODIS can be started and methods like: flash or send_raw_service can be used.
+Which means first executable have to be started then from CAPL ODIS can be started and methods like: flash or send_raw_service can be used diretcyl from CAPL (Canoe/Canape/Canalyzer).
 
 ### Python usage example: 
 ```c
