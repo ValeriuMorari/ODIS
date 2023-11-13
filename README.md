@@ -2,8 +2,11 @@
 
 ### Description:
 By calling create_exe.bat you can create executable which opens socket.
+
 Executable release is attached as asset: socket_connection.exe to release: https://github.com/ValeriuMorari/ODIS/releases/tag/1.0.0
+
 Corresponding .exe opens socket at port 12345 and interprets commands specified below. 
+
 
 ### Encapsulated methods:
 ```
