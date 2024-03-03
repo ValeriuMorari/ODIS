@@ -99,9 +99,9 @@ class CommandInterface:
         :param message: Raw socket message
         :return: None
         """
-        time.sleep(3)
-        self._results.put("executed initialize with success")
-        return
+        # time.sleep(3)
+        # self._results.put("executed initialize with success")
+        # return
         logger.info(f"RUN _initialize_object: {message}")
         command = Command(message)
         method, args = command.dispatch()
@@ -116,9 +116,9 @@ class CommandInterface:
         :param message:
         :return:
         """
-        time.sleep(3)
-        self._results.put("executed CMD with success")
-        return
+        # time.sleep(3)
+        # self._results.put("executed CMD with success")
+        # return
         logger.info(f"RUN _execute_command: {message}")
         try:
             command = Command(message)

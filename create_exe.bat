@@ -1,1 +1,1 @@
-venv\Scripts\pyinstaller.exe socket_connection.py --onefile
+venv\Scripts\pyinstaller.exe detached_socket_connection.py --onefile
