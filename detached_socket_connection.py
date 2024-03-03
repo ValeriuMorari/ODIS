@@ -1,6 +1,6 @@
 """Socket that handles ODIS commands"""
 import socket
-from interfaces.command_interface import CommandInterface
+from interfaces.detached_command_interface import CommandInterface
 from odis.odis import Odis
 from modules.logger import logger
 
@@ -26,6 +26,7 @@ class SocketServer:
 
                 # Handle the connection and receive messages
                 self.handle_connection(client_socket)
+                self.command_interface.stop_interface()
 
         except socket.error as e:
             logger.info(f"Server error: {e}")
@@ -33,24 +34,32 @@ class SocketServer:
             self.server_socket.close()
 
     def handle_connection(self, client_socket):
-        first_call = False
+        first_call = True
 
         while True:
             data = client_socket.recv(1024)
             message = data.decode()
             logger.info(f"Received: {message}")
-            try:
-                if first_call:
-                    self.command_interface.initialize_object(message)
-                    first_call = False
-                    client_socket.send("initialized with success".encode())
-                    continue
-                response = self.command_interface.execute_command(message)
-                logger.info(response)
-            except Exception as error:
-                client_socket.send(str(error).encode())
+
+            if first_call:
+                try:
+                    self.command_interface.add_initialization_task(message)
+                except Exception as error:
+                    result = str(error)
+                else:
+                    result = "initialized with success"
+                first_call = False
+            elif message in self.command_interface.cmd_interface_commands:
+                result = str(self.command_interface.__getattribute__(message)())
             else:
-                client_socket.send(str(response).encode())
+                try:
+                    self.command_interface.add_command_execution_task(message)
+                except Exception as error:
+                    result = str(error)
+                else:
+                    result = "Task added"
+            logger.info(f"SENT: {result}")
+            client_socket.send(result.encode())
 
 
 if __name__ == "__main__":

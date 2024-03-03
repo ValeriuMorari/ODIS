@@ -1,5 +1,5 @@
 """Socket command"""
-from .custom_exceptions import CommandTemplateError, InvalidInitialization, InvalidCommand
+from interfaces.custom_exceptions import CommandTemplateError, InvalidInitialization, InvalidCommand
 import re
 
 METHOD_PATTERN = r'^.*(?=\()'
