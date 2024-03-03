@@ -3,13 +3,18 @@ import win32gui
 import time
 import func_timeout
 
-from odis.configuration import Configuration
+try:
+    from odis.configuration import Configuration
+except ModuleNotFoundError:
+    from configuration import Configuration
 from modules.logger import logger
 from modules.custom_exceptions import FlashingError
 from modules.utils import process_exists, kill_process_by_name, start_process, is_port_open
-from zeep import Client
+from zeep import Client, Settings
 
 STARTUP_TIMEOUT = 30
+
+settings = Settings(strict=False, xml_huge_tree=True, xsd_ignore_sequence_order=True)
 
 
 class Odis(Configuration):
@@ -24,6 +29,31 @@ class Odis(Configuration):
 
     @classmethod
     def initialize(cls, tool_path, configuration_path, tool_port):
+        """
+        :param tool_path: Path to OffboardDiagLauncher.exe
+        usually installed in: c:\\Program Files\\Offboard_Diagnostic_Information_System_Engineering
+        :param configuration_path: Path to ODIS configuration
+        usually installed in: c:\\ProgramData\\Offboard_Diagnostic_Information_System_Engineering
+        :param tool_port: Port for connection to ODIS webservice
+        Tool port is specified within webservice.ini configuration file
+        which usually can be found within ODIS configuration path
+        Example:
+        c:\\ProgramData\\Offboard_Diagnostic_Information_System_Engineering\\configuration\\webservice.ini
+
+        Corresponding configuration file shall contain following keys for automation usage of ODIS web service
+        ----------------------------------------------------------------------------
+        # Default if value is not set: FALSE
+        de.volkswagen.odis.vaudas.vehiclefunction.automation.webservice.enabled=true
+
+        # Port for publishing the web-service.
+        # Default if value is not set: 8081
+        de.volkswagen.odis.vaudas.vehiclefunction.automation.webservice.port=8086
+
+        # End of file marker - must be here
+        eof=eof
+        ----------------------------------------------------------------------------
+        """
+
         return cls(tool_path=tool_path,  # "c:\\Program Files\\OE",
                    configuration_path=configuration_path,  # "c:\\ProgramData\\OE\\",
                    tool_port=tool_port)
@@ -73,12 +103,12 @@ class Odis(Configuration):
             wait_for_startup()
         except func_timeout.exceptions.FunctionTimedOut:
             logger.error(f"ODIS did not opened within {STARTUP_TIMEOUT}s. Timeout reached")
-            raise
+            raise RuntimeError(f"ODIS did not opened within {STARTUP_TIMEOUT}s. Timeout reached")
 
     def open(self, force_kill=False) -> str:
         """
         Starts up ODIS, connects to ODIS service
-        :param force_kill:
+        :param force_kill: if True, Kill ODIS before startup if existing
         :return: Client object is stored under `client` instance attribute; returned success string
         """
         force_kill = bool(force_kill)
@@ -92,9 +122,20 @@ class Odis(Configuration):
         cmd_line_call = fr'{executable_path} -configuration configuration\webservice.ini'
         start_process(call=cmd_line_call, timeout=10)
         self._wait_until_reading_finishes()
-        self.service = Client(f"http://localhost:{self.tool_port}/OdisAutomationService?wsdl").service
+        self.service = Client(f"http://localhost:{self.tool_port}/OdisAutomationService?wsdl",
+                              settings=settings).service
         logger.info(f"Initialized: {self.service}: {self.service.getAutomationApiVersion()}")
         return "ODIS opened"
+
+    def close(self):
+        """
+        Close ODIS
+        Returns immediately and closes the application in a separate thread.
+        This might take some seconds. So there is a period of time between the return of the exit method and the shutdown.
+        """
+        self.service.exit()
+        time.sleep(3)
+        return "Odis has been closed"
 
     def start_protocol(self):
         """
@@ -107,6 +148,7 @@ class Odis(Configuration):
             self.service.discardProtocol()
             self.service.initProtocol()
             self.service.startProtocol()
+            logger.info("Protocol started")
             return "Protocol started"
         except Exception as error:
             logger.error(error)
@@ -129,7 +171,7 @@ class Odis(Configuration):
 
     def set_vehicle_project(self, project):
         """
-        Sets vehicle project (PDX) which usually is imported using PDXImported
+        Sets vehicle project (PDX) which usually is imported using PDXImporter
         :param project: PDX name
         :return:
         """
@@ -138,7 +180,90 @@ class Odis(Configuration):
         self.vehicle_project_set = True
         return f"Vehicle project {project} was set"
 
-    def connect_to_ecu(self, address: int = 3):
+    def set_doip_vehicle_project(self, project_name: str, ecu_ip_address: str) -> str:
+        """
+        Search DoIP VCI ,Set and load DOIP vehicle project
+        :param ecu_ip_address:
+        :param project_name: Name of valid project name present in ODIS
+        :return:
+        """
+        if ecu_ip_address == '':
+            ecu_ip_address = None
+        ido_ipvci_list = self.service.searchDoIPVCIs(ecu_ip_address)
+        if len(ido_ipvci_list) == 0:
+            return "No DoIP ECUs found! Check adapter configuration."
+        logger.info("Identified IPVCI:")
+        logger.info(ido_ipvci_list)
+
+        ido_ipvci = ido_ipvci_list[0]  # First node is selected - hardcoded
+        # None element generates exception: Missing element name (setDoIPVehicleProject.identifier.name)
+        ido_ipvci['name'] = ''
+        self.service.setDoIPVehicleProject(ido_ipvci, project_name)
+        return "DoIp set successfully"
+
+    def close_connection_to_ecu(self, ecu_address: str) -> str:
+        """
+        Closes the connection to the current control unit and switches to CLOSE_CONNECTION_BEHAVIOUR.
+        :param ecu_address: Communication ECU address
+        :return:
+        """
+        ecu_handle = self.service.get_connection_handle(ecu_address)
+        self.service.closeConnection(ecu_handle)
+        return "Connection closed successfully."
+
+    def check_flashing_preconditions(self):
+        """
+        Checks the flashing preconditions for the current control unit and delivers the list of unfulfilled conditions
+        :return: The list of unfulfilled preconditions or an empty list if all conditions are fulfilled.
+        """
+        return str(self.service.checkFlashPreConditions(self.connection_handle))
+
+    def flash_container_is_flashable(self, flash_container: str):
+        """
+        FROM odis DOCS:
+        connectionHandle - Handle for control unit connection.
+        containerFileName - Name of the container file with full path.
+        sessionName - The session name to flash. A null value is allowed.
+
+        Checks if the current control unit is flashable with the containerFileName
+        if flash container is none than Checks if the current control unit is in principle flashable
+        :param flash_container:  Name of the container file with full path.
+        :return:
+        """
+        if not os.path.exists(flash_container):
+            return "Flash container not found."
+        if self.service.checkFlashProgrammingWithFlashContainer(self.connection_handle, flash_container, ""):
+            return "Current control unit is flashable with the containerFileName content."
+        else:
+            return "Current control unit is NOT flashable with the containerFileName content."
+
+    def is_flashable(self):
+        """
+        Checks if the current control unit is in principle flashable.
+        If the information is not available the methods returns true.
+
+        :return:
+        """
+
+        if self.service.checkFlashProgramming(self.connection_handle):
+            return "Current control unit is flashable"
+        else:
+            return "Current control unit is NOT flashable"
+
+    def identify_ecu(self):
+        """
+        Reads all identification data from the currently selected control unit including
+        extended information and slave control units.
+        :return:
+        """
+
+        result_identification = self.service.readIdentification(self.connection_handle)
+        if len(result_identification) == 0:
+            return "No ECU data identified"
+        else:
+            return f"Identified ECU: {result_identification[0].ecuAddress}"
+
+    def connect_to_ecu(self, address: int = 33114):
         """
         Initialize connection to ECU
         :return:
@@ -153,6 +278,10 @@ class Odis(Configuration):
 
     @property
     def operable(self):
+        """
+        Checks if PDX is imported and ecu is connected
+        This represents mandatory prerequisite for sending raw dia request and flashing
+        """
         if self.ecu_connected and self.vehicle_project_set:
             return True
         else:
@@ -181,7 +310,7 @@ class Odis(Configuration):
 
     def send_raw_service(self, hex_command):
         """
-
+        Sends raw diagnostic service, example: Extended diagnostic session: '10 03'
         :param hex_command: Command in hex
         :return:
         """
@@ -205,9 +334,24 @@ class Odis(Configuration):
 
         return answer
 
+    def set_communication_trace(self, trace_state: str):
+        """
+        Starts or stops the tracing of BUS, DoIP or JOB traces. Which traces are affected is configured within
+        configureSetting.
+        Usually stored under [configuration path]\\trace_logs
+        Parameters:
+        traceState - The state for tracing.
+
+        """
+        if trace_state not in ["ON", "OFF"]:
+            return "Invalid traceState: Possible values:[ON][OFF]"
+
+        self.service.setCommunicationTrace("ON")
+        return f"Trace state set to: {trace_state}"
+
     def flash(self, odx_container):
         """
-        Precondition: clear DTC and OBD_Driving_cycle = 0 should be performed as precondition
+        Precondition: clear DTC should be performed as precondition
         :param odx_container: path to ODX container
         :return:
         """
@@ -216,7 +360,7 @@ class Odis(Configuration):
             logger.info("ODX container: {} do not exists".format(odx_container))
             raise ValueError("ODX_CONTAINER_DO_NOT_EXISTS")
 
-        self.service.resetAllOBDFaultMemories()
+        # self.service.resetAllOBDFaultMemories()
         logger.info(f"Initiate flash session; ODX: {odx_container}")
         preconditions = self.service.checkFlashPreConditions(self.connection_handle)
         if not preconditions:
@@ -227,8 +371,12 @@ class Odis(Configuration):
 
         self.start_protocol()
         logger.info("Flashing started. It will take several minutes...")
-        flash_session = self.service.flashProgramming(self.connection_handle, odx_container,
-                                                      checkSessionWithEcu=False)
+        try:
+            flash_session = self.service.flashProgramming(self.connection_handle, odx_container,
+                                                          checkSessionWithEcu=False)
+        except Exception as error:
+            self.stop_protocol()
+            return str(error)
 
         self.stop_protocol()
 
@@ -254,17 +402,29 @@ class Odis(Configuration):
 if __name__ == "__main__":
     obj = Odis(tool_path="c:\\Program Files\\OE",
                configuration_path="c:\\ProgramData\\OE\\",
-               tool_port=8086)
+               tool_port=8081)
     obj.open(force_kill=True)
-    obj.set_vehicle_project(project="EV_BrakeESCMQB37CLASS_VF8CG001679")
-    obj.connect_to_ecu(address=0x3)
-    obj.start_protocol()
-    answers = []
-    # answers.append(obj.send_raw_service("10 02"))
-    # answers.append(obj.send_raw_service("10 03"))
-    answers.append(obj.send_raw_service("10 01"))
-    for item in answers:
-        print(item)
-    obj.stop_protocol()
+    print("ODIS opened ---")
+    # obj.set_vehicle_project("VW38XPA");
+    print(obj.set_doip_vehicle_project("VW", "fd53:8cb8:323:1::33"))
+    print(obj.connect_to_ecu())
+    print(obj.identify_ecu())
+    print(obj.set_communication_trace("ON"))
+    print(obj.flash(odx_container=r"C:\sw\temp.pdx"))
+    print(obj.set_communication_trace("OFF"))
+    print(obj.close())
+    print("ODIS closed ---")
+    print('TERMINATED')
+    # obj.set_vehicle_project(project="")
+    # obj.connect_to_ecu(address=0x10)
+    # obj.start_protocol()
+
+    # answers = []
+    # # answers.append(obj.send_raw_service("10 02"))
+    # # answers.append(obj.send_raw_service("10 03"))
+    # answers.append(obj.send_raw_service("10 01"))
+    # for item in answers:
+    #     print(item)
+    # obj.stop_protocol()
 
     # print(obj.service.getAutomationApiVersion())
