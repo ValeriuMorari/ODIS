@@ -30,8 +30,10 @@ class SocketServer:
 
         except socket.error as e:
             logger.info(f"Server error: {e}")
+            self.command_interface.stop_interface()
         finally:
             self.server_socket.close()
+            self.command_interface.stop_interface()
 
     def handle_connection(self, client_socket):
         first_call = True
@@ -47,7 +49,7 @@ class SocketServer:
                 except Exception as error:
                     result = str(error)
                 else:
-                    result = "initialized with success"
+                    result = "Task added"
                 first_call = False
             elif message in self.command_interface.cmd_interface_commands:
                 result = str(self.command_interface.__getattribute__(message)())
